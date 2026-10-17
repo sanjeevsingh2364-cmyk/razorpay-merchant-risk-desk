@@ -203,7 +203,7 @@ The recorded `/metrics` output was:
   "error_total": 3,
   "success_rate": 0.7,
   "error_rate": 0.3,
-  "avg_latency_ms": 31.85,
+  "avg_latency_ms": 37.1,
   "human_review_total": 5,
   "human_review_rate": 0.5
 }
