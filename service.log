@@ -8,3 +8,13 @@
 2026-10-17 15:39:30,755 ERROR endpoint=/case status=503 latency_ms=39.1 txn_id=T900099 fraud_probability=0.9597
 2026-10-17 15:39:30,822 INFO endpoint=/case status=200 latency_ms=40.1 txn_id=T800001 fraud_probability=0.043
 2026-10-17 15:39:30,891 INFO endpoint=/case status=200 latency_ms=44.3 txn_id=T800006 fraud_probability=0.9597
+2026-10-17 19:46:31,044 INFO endpoint=/score status=200 latency_ms=57.1 txn_id=T800001 fraud_probability=0.043
+2026-10-17 19:46:31,079 INFO endpoint=/score status=200 latency_ms=29.8 txn_id=T800002 fraud_probability=0.9597
+2026-10-17 19:46:31,151 WARNING endpoint=/score status=200 latency_ms=45.8 txn_id=T800003 fraud_probability=0.1765 guardrail_override=true
+2026-10-17 19:46:31,162 WARNING endpoint=/score status=400 latency_ms=2.6 txn_id=T800004
+2026-10-17 19:46:31,192 WARNING endpoint=/score status=422 latency_ms=1.8
+2026-10-17 19:46:31,285 INFO endpoint=/case status=200 latency_ms=59.0 txn_id=T900002 fraud_probability=0.9597
+2026-10-17 19:46:31,346 WARNING endpoint=/case status=200 latency_ms=38.5 txn_id=T900005 fraud_probability=0.9597 safe_default=true
+2026-10-17 19:46:31,402 ERROR endpoint=/case status=503 latency_ms=34.2 txn_id=T900099 fraud_probability=0.9597
+2026-10-17 19:46:31,478 INFO endpoint=/case status=200 latency_ms=54.5 txn_id=T800001 fraud_probability=0.043
+2026-10-17 19:46:31,557 INFO endpoint=/case status=200 latency_ms=47.7 txn_id=T800006 fraud_probability=0.9597
