@@ -7,4 +7,4 @@
 2026-10-18 08:23:13,828 WARNING endpoint=/case status=200 latency_ms=16.2 txn_id=T900005 fraud_probability=0.9597 safe_default=true
 2026-10-18 08:23:13,847 ERROR endpoint=/case status=503 latency_ms=17.5 txn_id=T900099 fraud_probability=0.9597
 2026-10-18 08:23:13,862 INFO endpoint=/case status=200 latency_ms=13.0 txn_id=T800001 fraud_probability=0.043
-2026-10-18 08:23:13,879 INFO endpoint=/case status=200 latency_ms=15.5 txn_id=T800006 fraud_probability=0.9597s
+2026-10-18 08:23:13,879 INFO endpoint=/case status=200 latency_ms=15.5 txn_id=T800006 fraud_probability=0.9597
