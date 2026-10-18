@@ -5,3 +5,4 @@ fastapi
 uvicorn
 pydantic
 requests
+httpx2==2.13.1
