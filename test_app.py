@@ -93,3 +93,35 @@ def test_metrics_returns_expected_fields():
     }
 
     assert expected_fields.issubset(data.keys())
+
+
+def test_score_rejects_non_finite_average():
+    body = '{"txn_id": "TEST1002", "merchant_category": "Grocery", "city": "Pune", "payment_mode": "UPI", ' \
+           '"amount_inr": 1500, "hour_of_day": 14, "txn_count_last_24h": 2, "avg_amount_30d_inr": NaN, ' \
+           '"distance_from_home_km": 3.5, "is_new_device": 0, "account_age_days": 365}'
+
+    response = client.post("/score", content=body, headers={"Content-Type": "application/json"})
+
+    assert response.status_code == 400
+    assert response.json()["field"] == "avg_amount_30d_inr"
+
+
+def test_score_rejects_implausibly_small_average():
+    txn = {**VALID_TXN, "avg_amount_30d_inr": 1e-300}
+
+    response = client.post("/score", json=txn)
+
+    assert response.status_code == 400
+    assert response.json()["field"] == "avg_amount_30d_inr"
+
+
+def test_score_large_payment_from_new_device_is_held():
+    txn = {**VALID_TXN, "txn_id": "TEST1003", "merchant_category": "Utilities", "payment_mode": "NetBanking",
+           "amount_inr": 150000, "avg_amount_30d_inr": 250000, "distance_from_home_km": 0.0,
+           "is_new_device": 1, "account_age_days": 2200}
+
+    response = client.post("/score", json=txn)
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "hold_for_review"
+    assert response.json()["human_review"] is True

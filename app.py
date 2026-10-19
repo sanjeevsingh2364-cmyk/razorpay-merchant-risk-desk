@@ -1,5 +1,7 @@
 """Part D: the Fraud Triage Service."""
 import logging
+import math
+import re
 import time
 from typing import Optional
 
@@ -18,6 +20,8 @@ logger = logging.getLogger("triage")
 
 KNOWN_CATEGORIES = {"Grocery", "Electronics", "Travel", "Food Delivery", "Fashion", "Utilities"}
 LARGE_PAYMENT_INR = 100_000
+# amount / 30-day average; the training data peaks near 13, so anything this large is a data error
+MAX_AMOUNT_RATIO = 1_000_000
 
 # Trained once at start-up; the server answers requests after this finishes.
 MODEL = build_final_model()
@@ -75,7 +79,8 @@ def record_request(endpoint, status, latency_ms, info):
 
     message = f"endpoint={endpoint} status={status} latency_ms={latency_ms:.1f}"
     if "txn_id" in info:
-        message += f" txn_id={info['txn_id']}"
+        # txn_id is client-supplied: keep it to printable, space-free ASCII so one request is one log line
+        message += " txn_id=" + re.sub(r"[^\x21-\x7e]", "_", str(info["txn_id"]))[:64]
     if "fraud_probability" in info:
         message += f" fraud_probability={info['fraud_probability']}"
     if info.get("safe_default"):
@@ -100,8 +105,14 @@ def find_invalid_field(txn):
         return "hour_of_day", "hour_of_day must be between 0 and 23"
     if txn.txn_count_last_24h < 0:
         return "txn_count_last_24h", "txn_count_last_24h must not be negative"
+    if not math.isfinite(txn.avg_amount_30d_inr):
+        return "avg_amount_30d_inr", "avg_amount_30d_inr must be a finite number"
     if txn.avg_amount_30d_inr <= 0:
         return "avg_amount_30d_inr", "avg_amount_30d_inr must be greater than 0"
+    if txn.amount_inr / txn.avg_amount_30d_inr > MAX_AMOUNT_RATIO:
+        return "avg_amount_30d_inr", "avg_amount_30d_inr is implausibly small compared with amount_inr"
+    if txn.distance_from_home_km is not None and not math.isfinite(txn.distance_from_home_km):
+        return "distance_from_home_km", "distance_from_home_km must be a finite number"
     if txn.merchant_category.strip().title() not in KNOWN_CATEGORIES:
         return "merchant_category", "merchant_category is not a known category"
     return None

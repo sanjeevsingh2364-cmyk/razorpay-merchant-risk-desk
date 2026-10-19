@@ -6,7 +6,7 @@ Razorpay Merchant Risk Desk is a fraud triage service for a fictional payment pr
 
 ## Reproduce
 
-Requires **Python 3.11 or newer**. The numbers in this README were re-verified on Python 3.12.3 (Linux) with scikit-learn 1.9.1 and pandas 3.0.6, installed from `requirements.txt`.
+Requires **Python 3.11 or newer**. The numbers in this README were verified on Python 3.12.3 (Linux) with scikit-learn 1.9.1 and pandas 3.0.6, installed from `requirements.txt`. `train.py` and `test_app.py` were also run successfully on Windows with Python 3.14.7, scikit-learn 1.9.1 and pandas 3.0.6.
 
 Run the following commands from the project directory after cloning the repository.
 
@@ -52,11 +52,18 @@ python smoke_test.py
 
 **The smoke test must run once, against a freshly started server.** `mock_llm.py` remembers how many times it has been called for each `txn_id`, so the scripted defects for `T900002` and `T900005` only occur on the first run. In a verification run, a second `python smoke_test.py` against the same server gave 9 of 11 passes, with Q7 and Q8 failing. `app.py` also appends to `service.log`. Before the final run, stop any running server, delete `service.log`, start a new server and run `python smoke_test.py` one time, so that `service.log` holds exactly the 10 POST lines of that run.
 
+Optional unit tests (they need the extra packages in `requirements-dev.txt`, which are not part of the service itself):
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q test_app.py
+```
+
 The API documentation is available at `http://127.0.0.1:8000/docs` while the server is running.
 
 The data-generation step recreates the synthetic input data. Run the preparation, training, retrieval, and case-note scripts in the order shown above before starting the API.
 
-## Part A — Data Preparation and Leakage Audit
+## Part A results — Data Preparation and Leakage Audit
 
 The raw dataset contained 6,090 rows and 14 columns. After removing 90 exact duplicate rows, 6,000 rows remained.
 
@@ -83,11 +90,20 @@ Missing `distance_from_home_km` values were not filled in during Part A because 
 | 1 | 373 | 304 |
 | 0 | 5,546 | 62 |
 
-The `chargeback_filed` field records an outcome that becomes known after a payment. Using it as a model input would introduce target leakage. The `txn_id` and `customer_id` columns are identifiers rather than reliable behavioural features. These three columns are therefore excluded from the model inputs. `txn_id` is a unique label for each row, and `customer_id` is a random label that `generate_data.py` draws independently of the fraud outcome; neither describes how a payment behaves. A model could only use them to memorise individual rows or customers, which would not carry over to new payments. `is_fraud` is the target label and is not a model input either.
+`chargeback_filed` is filed after a payment has settled and is 1 for 304 of the 366 fraud rows, so it would hand the model the answer using information that does not exist at decision time (target leakage). `txn_id` and `customer_id` are identifiers: `txn_id` is unique per row and `customer_id` is drawn independently of the fraud outcome, so a model could only memorise rows or customers with them. `is_fraud` is the target and is excluded for the same reason.
 
-Fraud accounts for approximately 6.18% of the cleaned dataset. A classifier that predicts every transaction as non-fraud could achieve approximately 93.82% accuracy while detecting no fraud cases. Precision, recall, and F1-score are consequently more informative for evaluating fraud detection performance than accuracy alone.
+| Never-fraud baseline | Result |
+|---|---:|
+| Fraud rows in the cleaned table | 366 of 5,919 |
+| Fraud rate | 6.18% |
+| Accuracy of predicting "not fraud" for every payment | 93.82% |
+| Recall of that rule | 0 |
 
-## Part B — Model Training and Evaluation
+Accuracy is the wrong headline metric because the rare class barely moves it, so a rule that catches no fraud at all still scores 93.82%. Recall and precision measure what the risk desk cares about, namely how many frauds are caught and how many held payments are real fraud.
+
+Final model-input columns (before one-hot encoding): `amount_inr`, `hour_of_day`, `txn_count_last_24h`, `avg_amount_30d_inr`, `distance_from_home_km`, `is_new_device`, `account_age_days`, `amount_vs_avg_ratio`, `is_night`, `high_value`, plus `merchant_category`, `city` and `payment_mode`. Excluded columns: `chargeback_filed`, `txn_id`, `customer_id` and `is_fraud`.
+
+## Part B results — Model Training and Evaluation
 
 The cleaned dataset was split into training, validation, and test sets. Missing distance values were imputed using the training-set median, and random oversampling was applied only to the training data.
 
@@ -99,6 +115,12 @@ The cleaned dataset was split into training, validation, and test sets. Missing 
 
 The training-set median used to impute `distance_from_home_km` was 12.6. Random oversampling increased the training set to 6,662 rows, including 3,331 fraud cases.
 
+The 26 model-input columns, in the order used for training, validation, test and the service:
+
+```
+['amount_inr', 'hour_of_day', 'txn_count_last_24h', 'avg_amount_30d_inr', 'distance_from_home_km', 'is_new_device', 'account_age_days', 'amount_vs_avg_ratio', 'is_night', 'high_value', 'merchant_category_Electronics', 'merchant_category_Fashion', 'merchant_category_Food Delivery', 'merchant_category_Grocery', 'merchant_category_Travel', 'merchant_category_Utilities', 'city_Bengaluru', 'city_Chennai', 'city_Delhi', 'city_Kolkata', 'city_Mumbai', 'city_Pune', 'payment_mode_Card', 'payment_mode_NetBanking', 'payment_mode_UPI', 'payment_mode_Wallet']
+```
+
 ### Imbalance treatment comparison
 
 Validation-set results at a probability threshold of 0.5:
@@ -108,6 +130,16 @@ Validation-set results at a probability threshold of 0.5:
 | Plain logistic regression | 0.625 | 0.342 | 0.442 |
 | Class-weighted logistic regression | 0.252 | 0.781 | 0.381 |
 | Oversampled logistic regression | 0.257 | 0.781 | 0.386 |
+
+Confusion matrices on the validation split at 0.5:
+
+| Model | TN | FP | FN | TP |
+|---|---:|---:|---:|---:|
+| Plain | 1096 | 15 | 48 | 25 |
+| Class-weighted | 942 | 169 | 16 | 57 |
+| Oversampled | 946 | 165 | 16 | 57 |
+
+A risk desk that must not miss fraud would prefer class weighting or over-sampling, because both raise validation recall from 0.342 to 0.781 (57 of 73 frauds caught instead of 25). The cost is precision, which falls from 0.625 to about 0.25, so roughly 165 to 169 legitimate payments are held instead of 15. Class weighting is the simpler of the two because it duplicates no rows.
 
 Five-fold cross-validation produced the following results:
 
@@ -121,6 +153,20 @@ Grid search evaluated 12 parameter combinations across five folds. The selected 
 ### Threshold selection and test results
 
 The selected threshold was `t_star = 0.4`, based on the validation-set recall constraint of at least 0.65.
+
+Validation threshold table for the tuned forest:
+
+| Threshold | Precision | Recall | F1 | Flagged |
+|---:|---:|---:|---:|---:|
+| 0.1 | 0.111 | 0.973 | 0.200 | 638 |
+| 0.2 | 0.158 | 0.945 | 0.271 | 437 |
+| 0.3 | 0.209 | 0.863 | 0.336 | 302 |
+| 0.4 | 0.272 | 0.712 | 0.394 | 191 |
+| 0.5 | 0.352 | 0.589 | 0.441 | 122 |
+| 0.6 | 0.507 | 0.507 | 0.507 | 73 |
+| 0.7 | 0.528 | 0.260 | 0.349 | 36 |
+| 0.8 | 0.778 | 0.192 | 0.308 | 18 |
+| 0.9 | 0.800 | 0.055 | 0.103 | 5 |
 
 | Test metric | Result |
 |---|---:|
@@ -158,7 +204,7 @@ The tuned random forest was selected on 5-fold cross-validated F1 computed on th
 | Untuned random forest | 0.453 | 0.052 |
 | Tuned random forest (`max_depth=None`, `min_samples_leaf=5`) | 0.465 | 0.042 |
 
-The random forest is ahead of balanced logistic regression by about 0.06 F1, which is larger than the fold-to-fold spread of either model. The gain from tuning (0.465 against 0.453) is smaller than the spread across folds, so tuning is not clear evidence of improvement. The random forest also returns probabilities that can be thresholded, and the threshold was then chosen on validation. At the default 0.5 threshold, the clean tuned forest scored a validation F1 of 0.441, about the same as plain logistic regression (0.442, but with recall of only 0.342). Logistic regression was not threshold-tuned in this project, so that comparison is not like for like. The test split was used once, at `t_star = 0.4`.
+On accuracy (CV F1), the tuned forest scores 0.465 against 0.402 for balanced logistic regression, a gain of about 0.06. On stability, its fold-to-fold standard deviation of 0.042 is larger than the 0.015 of logistic regression but smaller than the gap between the two models; tuning added only 0.012 over the untuned forest (0.453), which is within the fold spread, so tuning is not clear evidence of improvement. On interpretability, the forest offers feature importances and probabilities that can be thresholded, but no single coefficient per feature. Relative to logistic regression it therefore gives up some transparency and some stability, and logistic regression was not threshold-tuned here, so the comparison is not like for like. The test split was used once, at `t_star = 0.4`.
 
 ### Feature importance
 
@@ -178,38 +224,28 @@ These importances describe what this model uses, not what causes fraud. The rati
 
 ### Risk committee note
 
-**Purpose.** The model is a triage aid that decides which payments a human analyst should look at first. It is not an automatic blocker.
+The alert threshold is 0.4, the highest threshold on the 0.1 to 0.9 validation grid whose validation recall is at least 0.65 (recall 0.712 at 0.4, but only 0.589 at 0.5). On the test split it flagged 203 of 1,184 payments. It caught 57 of the 73 frauds and missed 16, and it held 146 legitimate payments, which is 2.56 legitimate payments held per fraud caught (146 / 57). A stricter threshold of 0.6 would cut the validation flagged count from 191 to 73 and lift precision from 0.272 to 0.507, but recall would fall from 0.712 to 0.507, so many more frauds would be missed. The model is a triage aid for a human analyst, not an automatic blocker. All of this rests on synthetic data and only 73 test frauds, so none of it is a production guarantee.
 
-**Evidence (test split, 1,184 payments, 73 fraud, threshold 0.4).**
-
-- It flagged 203 payments (17.1% of the split) and caught 57 of 73 fraud cases (recall 0.781).
-- It missed 16 fraud cases (21.9% of fraud) and held 146 legitimate payments.
-- Precision was 0.281, which is about 2.56 legitimate payments held for every fraud caught.
-
-**Controls in the service.**
-
-- A flagged payment is never auto-approved in `/score` or `/case`.
-- A payment of INR 100,000 or more from a new device is held even when the model does not flag it (smoke test Q4).
-- A case note that fails validation three times falls back to a `hold_for_review` safe default.
-
-**Residual risks.**
-
-- About one fraud case in five was missed in testing, and roughly one payment in six was sent to review.
-- The threshold was chosen from only 73 validation fraud cases, so it may not be stable.
-- The data is synthetic and uses a hand-built fraud rule, so real-world performance is unknown.
-- `chargeback_filed` is excluded because it is only known after the outcome; including it inflated validation F1 from 0.441 to 0.797.
-- Analyst capacity must cover the review volume.
-
-**Recommendation (cautious, not a production-readiness claim).** This recommendation rests only on a synthetic dataset with a hand-built fraud rule and on one test split containing 73 fraud cases. Those results do not show that the model is ready for production, and they say nothing certain about how it would perform on real payments. On this evidence alone, the most the results support is limited use as decision support, with every flagged payment reviewed by a human analyst, for example in a controlled pilot. Before any production use, the committee should require at least:
-
-- re-training and re-evaluation on real labelled transaction data;
-- re-selection of the alert threshold on enough real fraud cases to be stable;
-- re-measurement of the miss rate and the review load against available analyst capacity;
-- an acceptance decision by the committee on whether a miss rate near 22% and a review load near 17% are tolerable for the real business.
-
-## Part C — Policy Retrieval and Case Notes
+## Part C results — Policy Retrieval and Case Notes
 
 The retrieval component uses TF-IDF similarity to identify the relevant fraud policy for a transaction scenario. The configured minimum retrieval score is `MIN_SCORE = 0.45`.
+
+Retrieval on the 10 queries in `retrieval_queries.json` (top-1 policy and cosine score):
+
+| Query | Expected | Retrieved | Score |
+|---|---|---|---:|
+| card payment above INR 50000 from a new device | P1 | P1 | 0.5501 |
+| how many UPI payments in 24 hours trigger a velocity alert | P2 | P2 | 0.5622 |
+| payment at 3 AM far away from the home city | P3 | P3 | 0.4948 |
+| customer reports unauthorised payment and chargeback case | P4 | P4 | 0.5689 |
+| electronics merchant payment on an account younger than 30 days | P5 | P5 | 0.5641 |
+| which payments are approved automatically without manual review | P6 | P6 | 0.6250 |
+| temporary hold on repeated UPI payments within a day | P2 | P2 | 0.4862 |
+| what happens after a customer reports an unauthorised payment | P4 | P4 | 0.4867 |
+| what is the cafeteria menu today | None | P3 | 0.4251 |
+| how do I reset my email password | None | P1 | 0.0000 |
+
+In-scope top-1 hits: 8 of 8. The highest out-of-scope score (0.4251) and the lowest in-scope score (0.4862) bracket `MIN_SCORE = 0.45`.
 
 | Retrieval check | Result |
 |---|---:|
@@ -256,9 +292,11 @@ Three layers of protection are therefore needed, and the scenario results show w
 - **The safe default** applies when retries run out (S5). It is a `hold_for_review` note with `high` priority, so a failed model call can never turn into an approval.
 - **The guardrail** covers a different failure. In S6 the model returned a well-formed note recommending `approve` for a payment with fraud probability 0.58. That note passes all three validation gates because `approve` is an allowed value, so only the guardrail (an `approve` at probability 0.5 or higher becomes `hold_for_review`) stopped it. Validation checks the form of the output, and the guardrail checks that its content is safe.
 
-## Part D — FastAPI Service and Smoke Tests
+## Part D results — FastAPI Service and Smoke Tests
 
 The FastAPI service exposes health, scoring, case-note, metrics, and API documentation endpoints. The smoke-test suite exercised the expected success, escalation, and edge-case behaviours.
+
+Beyond the five input checks in the brief, `app.py` also rejects a non-finite `avg_amount_30d_inr` or `distance_from_home_km`, and an `avg_amount_30d_inr` so small that `amount_inr / avg_amount_30d_inr` exceeds 1,000,000, with status 400 (these inputs previously reached the model and caused a 500 or an unchecked score). The logged `txn_id` is reduced to printable ASCII without spaces so a client cannot add fake lines to `service.log`.
 
 The smoke test must run once against a freshly started server with a deleted `service.log`, as described in the Reproduce section. The results, metrics and log excerpts below all come from the same final run.
 
@@ -326,3 +364,4 @@ The log examples illustrate successful scoring, a guardrail override, and a simu
 - The threshold was selected using only 73 validation fraud cases, so the estimate may be unstable.
 - The reported metrics and latency are from a limited test run and should not be treated as production performance guarantees.
 - The service has not been validated on a real payment processor's production traffic or operational environment.
+- An unseen `city` or `payment_mode` value is not rejected: it is one-hot encoded as all zeros and scored anyway, so such a request is scored with less information than a known one.

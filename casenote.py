@@ -130,12 +130,12 @@ def main():
         defaults += result["safe_default"]
         overrides += result["guardrail_override"]
         print(f"{'S' + str(number) + ' (' + s['txn_id'] + ')':<16}{policy_id:<8}{result['attempts']:<10}"
-              f"{str(result['failures']):<12}{result['status']:<8}"
-              f"{'yes' if result['safe_default'] else 'no':<14}"
-              f"{result['case_note']['recommended_action']:<18}"
-              f"{'yes' if result['guardrail_override'] else 'no'}")
+            f"{str(result['failures']):<12}{result['status']:<8}"
+            f"{'yes' if result['safe_default'] else 'no':<14}"
+            f"{result['case_note']['recommended_action']:<18}"
+            f"{'yes' if result['guardrail_override'] else 'no'}")
     print(f"\nTotals: {total_calls} model calls; {first_try} valid on first call; "
-          f"{recovered} recovered by retry; {defaults} safe default; {overrides} guardrail override")
+        f"{recovered} recovered by retry; {defaults} safe default; {overrides} guardrail override")
 
 
 if __name__ == "__main__":

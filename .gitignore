@@ -1,5 +1,10 @@
 .env
 __pycache__/
+*.pyc
 .venv/
 venv/
-*.pyc
+.project-1/
+.pytest_cache/
+
+# Runtime log files
+*.log
